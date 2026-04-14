@@ -1,0 +1,397 @@
+{
+  "name": "Learning Agent 4",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "learning-agent",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -256,
+        112
+      ],
+      "id": "8129dd0e-d1f1-43e9-870b-cfef63f6ef17",
+      "name": "Webhook",
+      "webhookId": "776ff915-3e9e-4822-b8f3-165ff541ce2b"
+    },
+    {
+      "parameters": {
+        "content": "**This Webhook will receive:**\nexample:\n{\n  \"user_id\": \"user123\",\n  \"origin\": \"940GZZLUKSX\",\n  \"destination\": \"940GZZLUWLO\"\n}",
+        "height": 144,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -592,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "d5ad45cc-9ac5-4aef-9d0a-98d73c4fff9e",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "AGENT 4: LEARNING AGENT\n=======================\nLearns user preferences, recommends personalized routes\n\nNew user → Collaborative Filtering\nReturning user → Epsilon-Greedy RL",
+        "height": 224,
+        "width": 336,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -528,
+        -400
+      ],
+      "typeVersion": 1,
+      "id": "1a3f8ba3-e84c-4562-8f0c-c6433f6e11e1",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "EPSILON-GREEDY\n==============\n\"Should I try new or stick with what works?\"\n\nε (epsilon) = exploration rate\n\nε = 0.1 → 10% explore, 90% exploit (safe)\nε = 0.2 → 20% explore, 80% exploit (balanced)\nε = 0.4 → 40% explore, 60% exploit (aggressive)\n\nEXPLOIT = use best known route (safe)\nEXPLORE = try random new route (risky but might find better)\n\nStart ε = 0.2, decrease over time as user builds history",
+        "height": 288,
+        "width": 384
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -112,
+        -432
+      ],
+      "typeVersion": 1,
+      "id": "a8d796c1-b12e-43fd-ba20-0be577d40fc7",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "COLLABORATIVE FILTERING\n=======================\n\"What would similar users recommend?\"\n\nStep 1: Find users with similar preferences\nStep 2: Check what routes they like\nStep 3: Recommend same to new user\n\nSimilarity = matching preferences / total preferences\n\nLike Netflix: \"Users like you also watched...\"",
+        "height": 288,
+        "width": 320
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        336,
+        -432
+      ],
+      "typeVersion": 1,
+      "id": "763a9279-f765-412a-b911-b70a96a59a3d",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "DECISION FLOW\n=============\nUser has history? \n  YES → Epsilon-Greedy (exploit/explore)\n  NO  → Collaborative Filtering (copy similar users)\n\n0 trips → CF only\n1-5 trips → Mix both\n5+ trips → Epsilon-Greedy mainly\n\nTables needed:\n- user_preferences (profile)\n- journey_logs (travel history)",
+        "height": 288,
+        "width": 352,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        736,
+        -432
+      ],
+      "typeVersion": 1,
+      "id": "e42a644c-1a6f-4d27-b461-991431e03b38",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check User History - Decide which algorithm to use\nconst input = $input.first().json;\n\nconst userId = input.body?.user_id || \"guest_001\";\nconst origin = input.body?.origin || \"kings_cross\";\nconst destination = input.body?.destination || \"waterloo\";\n\n// Simulated user journey history (in real app, fetch from Supabase)\nconst userJourneyHistory = {\n  \"user_001\": [\n    { route: \"northern_line\", duration: 18, rating: 4 },\n    { route: \"circle_bakerloo\", duration: 22, rating: 3 },\n    { route: \"northern_line\", duration: 17, rating: 5 },\n    { route: \"victoria_jubilee\", duration: 20, rating: 4 }\n  ],\n  \"user_002\": [\n    { route: \"circle_bakerloo\", duration: 21, rating: 4 }\n  ],\n  \"guest_001\": []  // New user, no history\n};\n\nconst history = userJourneyHistory[userId] || [];\nconst tripCount = history.length;\n\n// Decision: Which algorithm to use?\nlet algorithm;\nif (tripCount === 0) {\n  algorithm = \"collaborative_filtering\";\n} else if (tripCount <= 3) {\n  algorithm = \"hybrid\";  // Mix both\n} else {\n  algorithm = \"epsilon_greedy\";\n}\n\nreturn {\n  user_id: userId,\n  origin: origin,\n  destination: destination,\n  trip_count: tripCount,\n  history: history,\n  algorithm: algorithm\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        96
+      ],
+      "id": "afbeb1f6-813e-4156-a182-fec3d45d9061",
+      "name": "Check User History"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.algorithm }}",
+                    "rightValue": "epsilon_greedy",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "66e9d51b-318c-4323-8344-861ac894c2d0"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "fd5c5c15-5a00-425e-852e-42ef42b74eca",
+                    "leftValue": "={{ $json.algorithm }}",
+                    "rightValue": "collaborative_filtering",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "14d53457-a5fd-416d-aa18-98a08532168d",
+                    "leftValue": "={{ $json.algorithm }}",
+                    "rightValue": "hybrid",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        176,
+        80
+      ],
+      "id": "0a1c9aeb-a1ad-4b90-8796-6aecf06f84f1",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Epsilon-Greedy Reinforcement Learning\nconst input = $input.first().json;\n\nconst history = input.history;\nconst epsilon = 0.2; // 20% explore, 80% exploit\n\n// Calculate average duration for each route\nconst routeStats = {};\nhistory.forEach(trip => {\n  if (!routeStats[trip.route]) {\n    routeStats[trip.route] = { totalDuration: 0, count: 0, totalRating: 0 };\n  }\n  routeStats[trip.route].totalDuration += trip.duration;\n  routeStats[trip.route].totalRating += trip.rating;\n  routeStats[trip.route].count += 1;\n});\n\n// Find best route (lowest average duration)\nlet bestRoute = null;\nlet bestAvgDuration = Infinity;\n\nfor (const route in routeStats) {\n  const avgDuration = routeStats[route].totalDuration / routeStats[route].count;\n  routeStats[route].avgDuration = avgDuration;\n  \n  if (avgDuration < bestAvgDuration) {\n    bestAvgDuration = avgDuration;\n    bestRoute = route;\n  }\n}\n\n// Epsilon-Greedy Decision\nconst randomValue = Math.random();\nconst allRoutes = [\"northern_line\", \"circle_bakerloo\", \"victoria_jubilee\", \"elizabeth_line\"];\nconst unknownRoutes = allRoutes.filter(r => !routeStats[r]);\n\nlet decision;\nlet recommendedRoute;\nlet reason;\n\nif (randomValue < epsilon && unknownRoutes.length > 0) {\n  // EXPLORE - try a new route\n  decision = \"EXPLORE\";\n  recommendedRoute = unknownRoutes[Math.floor(Math.random() * unknownRoutes.length)];\n  reason = `Random value ${randomValue.toFixed(2)} < epsilon ${epsilon}. Trying new route!`;\n} else {\n  // EXPLOIT - use best known route\n  decision = \"EXPLOIT\";\n  recommendedRoute = bestRoute;\n  reason = `Random value ${randomValue.toFixed(2)} >= epsilon ${epsilon}. Using best route!`;\n}\n\nreturn {\n  algorithm: \"epsilon_greedy\",\n  epsilon: epsilon,\n  random_value: randomValue.toFixed(2),\n  decision: decision,\n  recommended_route: recommendedRoute,\n  best_known_route: bestRoute,\n  best_avg_duration: bestAvgDuration.toFixed(1) + \" mins\",\n  route_stats: routeStats,\n  reason: reason,\n  user_id: input.user_id\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -64
+      ],
+      "id": "ccbbcf92-6cec-49c9-a7c2-97762460f6e1",
+      "name": "Epsilon Greedy RL"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collaborative Filtering - Recommend based on similar users\nconst input = $input.first().json;\n\nconst userId = input.user_id;\nconst origin = input.origin;\nconst destination = input.destination;\n\n// Simulated user preferences database (in real app, fetch from Supabase)\nconst userPreferences = {\n  \"user_001\": { time: \"morning\", speed: \"fastest\", changes: \"fewest\", crowd: \"avoid\" },\n  \"user_002\": { time: \"morning\", speed: \"balanced\", changes: \"fewest\", crowd: \"dont_mind\" },\n  \"user_003\": { time: \"evening\", speed: \"fastest\", changes: \"dont_mind\", crowd: \"avoid\" },\n  \"user_004\": { time: \"morning\", speed: \"fastest\", changes: \"fewest\", crowd: \"avoid\" }\n};\n\n// Simulated journey logs - what routes similar users liked\nconst userFavoriteRoutes = {\n  \"user_001\": { route: \"northern_line\", avg_rating: 4.5 },\n  \"user_002\": { route: \"circle_bakerloo\", avg_rating: 4.0 },\n  \"user_003\": { route: \"victoria_jubilee\", avg_rating: 4.2 },\n  \"user_004\": { route: \"northern_line\", avg_rating: 4.8 }\n};\n\n// New user's preferences (from signup or default)\nconst newUserPrefs = { time: \"morning\", speed: \"fastest\", changes: \"fewest\", crowd: \"avoid\" };\n\n// Calculate similarity with each existing user\nconst similarities = [];\n\nfor (const existingUser in userPreferences) {\n  const existingPrefs = userPreferences[existingUser];\n  let matches = 0;\n  let total = 4;\n  \n  if (existingPrefs.time === newUserPrefs.time) matches++;\n  if (existingPrefs.speed === newUserPrefs.speed) matches++;\n  if (existingPrefs.changes === newUserPrefs.changes) matches++;\n  if (existingPrefs.crowd === newUserPrefs.crowd) matches++;\n  \n  const similarity = (matches / total) * 100;\n  \n  similarities.push({\n    user: existingUser,\n    similarity: similarity + \"%\",\n    matches: matches + \"/4\",\n    favorite_route: userFavoriteRoutes[existingUser].route,\n    route_rating: userFavoriteRoutes[existingUser].avg_rating\n  });\n}\n\n// Sort by similarity (highest first)\nsimilarities.sort((a, b) => parseFloat(b.similarity) - parseFloat(a.similarity));\n\n// Recommend route from most similar user\nconst mostSimilarUser = similarities[0];\n\nreturn {\n  algorithm: \"collaborative_filtering\",\n  new_user: userId,\n  new_user_preferences: newUserPrefs,\n  similar_users: similarities,\n  most_similar_user: mostSimilarUser.user,\n  similarity_score: mostSimilarUser.similarity,\n  recommended_route: mostSimilarUser.favorite_route,\n  reason: `User ${mostSimilarUser.user} has ${mostSimilarUser.similarity} similarity and loves ${mostSimilarUser.favorite_route}`\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        96
+      ],
+      "id": "412126eb-1385-4728-90b1-7f9161504381",
+      "name": "Collaborative_Filtering"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        848,
+        -80
+      ],
+      "id": "1eff62f5-a1ad-4d58-8333-d26a75843e8a",
+      "name": "Response - Epsilon Greedy"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        864,
+        96
+      ],
+      "id": "3d4b9c70-2735-46a4-a267-8975df27d44c",
+      "name": "Response - Collaborative Filtering"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Hybrid - Combine Epsilon-Greedy + Collaborative Filtering\nconst input = $input.first().json;\n\nconst userId = input.user_id;\nconst history = input.history;\n\n// ===== PART 1: Epsilon-Greedy (from user's own history) =====\nconst epsilon = 0.3; // Higher exploration for new-ish users\nconst randomValue = Math.random();\n\n// Calculate best route from user's limited history\nconst routeStats = {};\nhistory.forEach(trip => {\n  if (!routeStats[trip.route]) {\n    routeStats[trip.route] = { totalDuration: 0, count: 0 };\n  }\n  routeStats[trip.route].totalDuration += trip.duration;\n  routeStats[trip.route].count += 1;\n});\n\nlet userBestRoute = null;\nlet bestAvgDuration = Infinity;\n\nfor (const route in routeStats) {\n  const avgDuration = routeStats[route].totalDuration / routeStats[route].count;\n  if (avgDuration < bestAvgDuration) {\n    bestAvgDuration = avgDuration;\n    userBestRoute = route;\n  }\n}\n\n// ===== PART 2: Collaborative Filtering (from similar users) =====\nconst similarUserRecommendation = \"northern_line\"; // Most popular among similar users\nconst similarUserRating = 4.5;\n\n// ===== PART 3: Hybrid Decision =====\nlet recommendedRoute;\nlet reason;\nlet method;\n\nif (randomValue < epsilon) {\n  // EXPLORE - use collaborative filtering recommendation\n  method = \"EXPLORE (CF)\";\n  recommendedRoute = similarUserRecommendation;\n  reason = `Exploring! Using similar users' favorite: ${similarUserRecommendation}`;\n} else {\n  // EXPLOIT - use user's own best route\n  method = \"EXPLOIT (Own History)\";\n  recommendedRoute = userBestRoute;\n  reason = `Exploiting! Using your best route: ${userBestRoute} (${bestAvgDuration.toFixed(1)} mins avg)`;\n}\n\nreturn {\n  algorithm: \"hybrid\",\n  user_id: userId,\n  trip_count: history.length,\n  epsilon: epsilon,\n  random_value: randomValue.toFixed(2),\n  method: method,\n  recommended_route: recommendedRoute,\n  your_best_route: userBestRoute,\n  similar_users_recommend: similarUserRecommendation,\n  reason: reason\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        288
+      ],
+      "id": "5a2909ae-537d-444d-bc95-34d3451a3145",
+      "name": "Hybrid"
+    },
+    {
+      "parameters": {
+        "content": "**HYBRID** (ε = 0.3)\nMix of both algorithms\nHigher exploration for new-ish users",
+        "height": 112,
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        528,
+        496
+      ],
+      "typeVersion": 1,
+      "id": "d4de9b3d-55b6-4ef3-a607-d2e60beb55f9",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "**RESPONSE NODES**\nReturn JSON result to user/app\n- Shows recommended route\n- Shows algorithm used\n- Shows reasoning behind decision",
+        "height": 192,
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1120,
+        16
+      ],
+      "typeVersion": 1,
+      "id": "996d35df-62f9-4762-9c2d-6b426322db4a",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        864,
+        288
+      ],
+      "id": "346932eb-0c34-4ebd-9b7a-51f6ab69aa01",
+      "name": "Response - Hybrid"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check User History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check User History": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Epsilon Greedy RL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collaborative_Filtering",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hybrid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Epsilon Greedy RL": {
+      "main": [
+        [
+          {
+            "node": "Response - Epsilon Greedy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collaborative_Filtering": {
+      "main": [
+        [
+          {
+            "node": "Response - Collaborative Filtering",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hybrid": {
+      "main": [
+        [
+          {
+            "node": "Response - Hybrid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "aefdcdc6-be41-4779-83ae-d0b4d6cdec85",
+  "meta": {
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "Nv8y3bAG2vQt5u6x",
+  "tags": []
+}

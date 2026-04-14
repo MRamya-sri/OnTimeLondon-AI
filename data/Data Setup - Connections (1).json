@@ -1,0 +1,230 @@
+{
+  "name": "Data Setup - Connections",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "f1cf789c-622e-4bb1-8b5a-d69bb67332c1",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://api.tfl.gov.uk/Line/Mode/tube,overground,elizabeth-line,dlr",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "d8951c7d-2d74-4f3a-94bc-efad9c052040",
+      "name": "Get Line Routes"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lines = $input.all().map(item => item.json);\n\nconst lineIds = lines.map(line => ({\n  json: {\n    line_id: line.id,\n    line_name: line.name,\n    mode: line.modeName\n  }\n}));\n\nreturn lineIds;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        0
+      ],
+      "id": "26330dea-00b4-4e35-935c-b775b0bed055",
+      "name": "Extract Line IDs"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.tfl.gov.uk/Line/{{ $json.line_id }}/Route/Sequence/all",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 2000
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        576,
+        0
+      ],
+      "id": "5facb4af-85f9-4661-bd64-2637472cf78b",
+      "name": "Get Line Stations"
+    },
+    {
+      "parameters": {
+        "jsCode": "const connections = [];\nconst items = $input.all();\n\nfor (const item of items) {\n  const data = item.json;\n  const lineId = data.lineId;\n  \n  const sequences = data.stopPointSequences || [];\n  \n  for (const sequence of sequences) {\n    const stops = sequence.stopPoint || [];\n    \n    for (let i = 0; i < stops.length - 1; i++) {\n      const fromStation = stops[i];\n      const toStation = stops[i + 1];\n      \n      connections.push({\n        from_station_id: fromStation.id,\n        to_station_id: toStation.id,\n        line_id: lineId,\n        base_time_seconds: 120\n      });\n    }\n  }\n}\n\nconst unique = [];\nconst seen = new Set();\n\nfor (const conn of connections) {\n  const key = `${conn.from_station_id}-${conn.to_station_id}-${conn.line_id}`;\n  if (!seen.has(key)) {\n    seen.add(key);\n    unique.push({ json: conn });\n  }\n}\n\nreturn unique;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        0
+      ],
+      "id": "b369bc21-cc5d-4e63-b2ed-03d953f1c5cf",
+      "name": "Parse Connections"
+    },
+    {
+      "parameters": {
+        "tableId": "connections",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "from_station_id",
+              "fieldValue": "={{ $json.from_station_id }}"
+            },
+            {
+              "fieldId": "to_station_id",
+              "fieldValue": "={{ $json.to_station_id }}"
+            },
+            {
+              "fieldId": "line_id",
+              "fieldValue": "={{ $json.line_id }}"
+            },
+            {
+              "fieldId": "base_time_seconds",
+              "fieldValue": "={{ $json.base_time_seconds }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        976,
+        0
+      ],
+      "id": "1cf07cc0-588c-4baa-b11f-165707770fdb",
+      "name": "Insert Connections",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "TfL NETWORK IMPORTER\n====================\nOne-time setup - builds graph for Dijkstra's\n\nNode = Station (471 total)\nEdge = Connection between stations (1154 total)\nWeight = Travel time (120 sec default)\n\nWhen line has delay → weight increases\n→ Dijkstra avoids it → finds alt route\n",
+        "height": 272,
+        "width": 272,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -96,
+        -368
+      ],
+      "typeVersion": 1,
+      "id": "232e6afa-05a2-46be-8c12-abbbecd4c8b1",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "STEP 1: WHAT LINES EXIST?\n\n**Get Line Routes** → fetches 19 lines\n(bakerloo, central, northern, elizabeth...)\n\n**Extract Line IDs** → cleans the list\n\n⚠️ This does NOT give us edges yet!\nJust knowing \"Central line exists\" doesn't\ntell us which stations it connects",
+        "height": 272,
+        "width": 256
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        240,
+        -368
+      ],
+      "typeVersion": 1,
+      "id": "e6d3ace2-3a12-4082-93ea-84e5274dedb2",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "STEP 2: BUILD THE EDGES\n\n**Get Line Stations** → fetches station ORDER per line\ne.g. Central: Ealing → West Acton → North Acton...\n\n**Parse Connections** → turns sequence into edges\nEaling ↔ West Acton (edge 1)\nWest Acton ↔ North Acton (edge 2)\n\nInsert Connections → saves 1154 edges to Supabase",
+        "height": 272,
+        "width": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        544,
+        -368
+      ],
+      "typeVersion": 1,
+      "id": "b04d6e4b-6400-4169-868a-c57ad5dd7e83",
+      "name": "Sticky Note2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get Line Routes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Line Routes": {
+      "main": [
+        [
+          {
+            "node": "Extract Line IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Line IDs": {
+      "main": [
+        [
+          {
+            "node": "Get Line Stations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Line Stations": {
+      "main": [
+        [
+          {
+            "node": "Parse Connections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Connections": {
+      "main": [
+        [
+          {
+            "node": "Insert Connections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2f4b8871-5242-4fe2-b6f7-a197e8578eed",
+  "meta": {
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "6Xe2HIS4CJNJnSlA",
+  "tags": []
+}

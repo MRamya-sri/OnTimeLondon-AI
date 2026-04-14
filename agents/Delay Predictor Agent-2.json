@@ -1,0 +1,767 @@
+{
+  "name": "Delay Predictor Agent 2",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# Pre-requisite\nBefore making this agent we are training the LSTM Model with ** last 3 years historical tfl data.** (Which is 5th source)\nUsing jupyter notebook (https://link to jupyter notebook)",
+        "height": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -224,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "0c10d1bc-b332-4c67-83eb-6f6331a650cf",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "path": "b951ad15-7b3a-4536-9b53-36cbe26425bf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -96,
+        352
+      ],
+      "id": "da13d68f-d7d5-44c6-8440-6b1bb5c2d81d",
+      "name": "Webhook",
+      "webhookId": "b951ad15-7b3a-4536-9b53-36cbe26425bf"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "live_status",
+        "limit": 519
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        112
+      ],
+      "id": "18a04e41-eff1-4cb5-a531-5bdb9e779686",
+      "name": "live status tfl",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "weather_data",
+        "limit": 1
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        304,
+        272
+      ],
+      "id": "3a4d27df-11fa-4f4c-a570-ba7551b89330",
+      "name": "weather data",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "event_calendar",
+        "limit": 5
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        320,
+        432
+      ],
+      "id": "0bfc7ae0-e24b-41ab-bf07-7e60783ccaa1",
+      "name": "event calender",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "social_signals",
+        "limit": 10
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        240,
+        608
+      ],
+      "id": "66514f81-7aaa-4b02-8267-1b4885aa5a5f",
+      "name": "social signals reddit",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        592,
+        176
+      ],
+      "id": "0a4ca989-8e01-4de7-a5a4-88871d7d04d0",
+      "name": "Merge"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        608,
+        496
+      ],
+      "id": "d9be5fed-9e2b-47b3-afdb-7334146bb608",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        832,
+        352
+      ],
+      "id": "1235488a-3b7f-4667-b3c1-0b813c31bafe",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all().map(i => i.json);\n\n// Separate data by type\nconst liveStatus = allItems.filter(i => i.line_id && i.status_severity);\nconst weather = allItems.filter(i => i.temperature !== undefined);\nconst events = allItems.filter(i => i.event_name);\nconst social = allItems.filter(i => i.sentiment_score !== undefined && i.source);\n\n// Get latest weather\nconst latestWeather = weather[0] || {};\n\n// Calculate average social sentiment\nconst avgSentiment = social.length > 0 \n  ? social.reduce((sum, s) => sum + (s.sentiment_score || 0), 0) / social.length \n  : 0;\n\n// Count negative social posts\nconst negativePosts = social.filter(s => s.sentiment_score < 0).length;\n\n// Count events happening today\nconst now = new Date();\nconst activeEvents = events.filter(e => {\n  const start = new Date(e.event_start);\n  return start.toDateString() === now.toDateString();\n}).length;\n\n// Build prediction input for each line\nconst predictionInputs = [];\n\nfor (const line of liveStatus) {\n  predictionInputs.push({\n    json: {\n      line_id: line.line_id,\n      line_name: line.line_name,\n      current_severity: line.status_severity,\n      current_status: line.status_description,\n      disruption_reason: line.distruption_reason,\n      temperature: latestWeather.temperature || null,\n      humidity: latestWeather.humidity || null,\n      wind_speed: latestWeather.wind_speed || null,\n      rain_mm: latestWeather.rain_mm || 0,\n      weather_condition: latestWeather.weather_condition || null,\n      active_events_today: activeEvents,\n      avg_social_sentiment: parseFloat(avgSentiment.toFixed(2)),\n      negative_social_posts: negativePosts,\n      day_of_week: now.getDay(),\n      hour: now.getHours(),\n      timestamp: now.toISOString()\n    }\n  });\n}\n\nreturn predictionInputs;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        352
+      ],
+      "id": "0e045106-ce56-418f-b7cd-4c83c645fb10",
+      "name": "input_variables for LSTM"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all().map(i => i.json);\n\nconst latestByLine = {};\nfor (const item of allItems) {\n  if (!latestByLine[item.line_id]) {\n    latestByLine[item.line_id] = item;\n  }\n}\n\nconst unique = [];\nfor (const lineId in latestByLine) {\n  unique.push({ json: latestByLine[lineId] });\n}\n\nreturn unique;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        352
+      ],
+      "id": "0267ebf1-7d24-46a3-a529-abb6bc4f9081",
+      "name": "Removed_duplicates"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst predictions = [];\n\nfor (const item of items) {\n  const line = item.json;\n  \n  // Placeholder logic until real LSTM is trained\n  // Uses current severity + weather + social as basic heuristic\n  const severityFactor = (10 - line.current_severity) / 10;\n  const weatherFactor = line.rain_mm > 0 ? 0.2 : 0;\n  const socialFactor = line.negative_social_posts > 3 ? 0.15 : 0;\n  const eventFactor = line.active_events_today > 0 ? 0.1 : 0;\n  \n  const delayProbability = Math.min(severityFactor + weatherFactor + socialFactor + eventFactor, 1.0);\n  const predictedDelay = delayProbability * 20; // max 20 min estimate\n  \n  predictions.push({\n    json: {\n      line_id: line.line_id,\n      line_name: line.line_name,\n      predicted_delay_minutes: parseFloat(predictedDelay.toFixed(1)),\n      delay_probability: parseFloat(delayProbability.toFixed(2)),\n      horizon_minutes: 30,\n      severity_predicted: line.current_severity,\n      feature_weights: {\n        current_status: severityFactor.toFixed(2),\n        weather: weatherFactor.toFixed(2),\n        social: socialFactor.toFixed(2),\n        events: eventFactor.toFixed(2)\n      },\n      model_version: 'placeholder_v1',\n      timestamp: new Date().toISOString()\n    }\n  });\n}\n\nreturn predictions;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        1856
+      ],
+      "id": "ba3a3f77-05ec-47fb-9849-01e6c3a54299",
+      "name": "LSTM Prediction (Placeholder)"
+    },
+    {
+      "parameters": {
+        "tableId": "predictions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "line_id",
+              "fieldValue": "={{ $json.line_id }}"
+            },
+            {
+              "fieldId": "delay_probability",
+              "fieldValue": "={{ $json.delay_probability }}"
+            },
+            {
+              "fieldId": "severity_predicted",
+              "fieldValue": "={{ $json.is_delayed }}"
+            },
+            {
+              "fieldId": "model_version",
+              "fieldValue": "=LSTM_v1_97acc"
+            },
+            {
+              "fieldId": "predicted_delay_minutes",
+              "fieldValue": "={{ $json.is_delayed == 1 ? 10 : 0 }}"
+            },
+            {
+              "fieldId": "horizon_minutes",
+              "fieldValue": "30"
+            },
+            {
+              "fieldId": "feature_weights",
+              "fieldValue": "hour,day_of_week,current_severity"
+            },
+            {
+              "fieldId": "timestamp",
+              "fieldValue": "={{ $now.toISO() }}"
+            },
+            {
+              "fieldId": "confidence",
+              "fieldValue": "={{ $json.confidence }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1648,
+        352
+      ],
+      "id": "c1cfeffe-81bb-47af-964a-4968a6b7706b",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:5000/predict",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"line_id\": \"{{ $json.line_id }}\",\n  \"hour\": {{ $json.hour }},\n  \"day_of_week\": {{ $json.day_of_week }},\n  \"status_severity\":{{ $json.current_severity }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1456,
+        352
+      ],
+      "id": "e9ec26d7-d9eb-4318-a556-361c9f422000",
+      "name": "LSTM trainedMODEL API"
+    }
+  ],
+  "pinData": {
+    "LSTM Prediction (Placeholder)": [
+      {
+        "json": {
+          "line_id": "bakerloo",
+          "line_name": "Bakerloo",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.741Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "central",
+          "line_name": "Central",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.741Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "circle",
+          "line_name": "Circle",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.741Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "district",
+          "line_name": "District",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.741Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "dlr",
+          "line_name": "DLR",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.741Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "elizabeth",
+          "line_name": "Elizabeth line",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.741Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "hammersmith-city",
+          "line_name": "Hammersmith & City",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.741Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "jubilee",
+          "line_name": "Jubilee",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.741Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "liberty",
+          "line_name": "Liberty",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "lioness",
+          "line_name": "Lioness",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "metropolitan",
+          "line_name": "Metropolitan",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "mildmay",
+          "line_name": "Mildmay",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "northern",
+          "line_name": "Northern",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "piccadilly",
+          "line_name": "Piccadilly",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "suffragette",
+          "line_name": "Suffragette",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "victoria",
+          "line_name": "Victoria",
+          "predicted_delay_minutes": 4,
+          "delay_probability": 0.2,
+          "horizon_minutes": 30,
+          "severity_predicted": 9,
+          "feature_weights": {
+            "current_status": "0.10",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "waterloo-city",
+          "line_name": "Waterloo & City",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "weaver",
+          "line_name": "Weaver",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      },
+      {
+        "json": {
+          "line_id": "windrush",
+          "line_name": "Windrush",
+          "predicted_delay_minutes": 2,
+          "delay_probability": 0.1,
+          "horizon_minutes": 30,
+          "severity_predicted": 10,
+          "feature_weights": {
+            "current_status": "0.00",
+            "weather": "0.00",
+            "social": "0.00",
+            "events": "0.10"
+          },
+          "model_version": "placeholder_v1",
+          "timestamp": "2026-03-15T13:43:44.742Z"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "live status tfl",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "weather data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "event calender",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "social signals reddit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "live status tfl": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "weather data": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "event calender": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "social signals reddit": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "input_variables for LSTM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "input_variables for LSTM": {
+      "main": [
+        [
+          {
+            "node": "Removed_duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Removed_duplicates": {
+      "main": [
+        [
+          {
+            "node": "LSTM trainedMODEL API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LSTM Prediction (Placeholder)": {
+      "main": [
+        []
+      ]
+    },
+    "LSTM trainedMODEL API": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "39fa23ee-11a1-4544-add1-90f918ff345c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "nfIyHlNIXLeJpREu",
+  "tags": []
+}

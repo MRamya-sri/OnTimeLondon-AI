@@ -1,0 +1,295 @@
+{
+  "name": "Agent 5 - Communication Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -432,
+        -48
+      ],
+      "id": "f67329b7-b58a-4e98-b148-52bde9121952",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "agent5_user_profile",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        48,
+        -272
+      ],
+      "id": "9b3a8ad8-6c82-4e57-a2a4-b82f41592e84",
+      "name": "Get User Profile",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "agent5_alert_history",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        48,
+        -112
+      ],
+      "id": "7237cd12-e144-471a-a2a1-f7659a29ba82",
+      "name": "Get Recent Alerts",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "agent5_journey_history",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        64,
+        48
+      ],
+      "id": "c1e9335e-adf9-42a9-9df4-d88518b69ea9",
+      "name": "Get Journey History",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "agent5_events",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        80,
+        240
+      ],
+      "id": "17005ada-00b0-4ecf-87c9-86446603d4c2",
+      "name": "Get Upcoming Events",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "numberInputs": 4
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        432,
+        -32
+      ],
+      "id": "98ec810a-c5af-43fc-8556-fccb90802f93",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all merged items\nconst items = $input.all();\n\n// Extract each type of data\nconst profile = items.find(i => i.json.home_station)?.json || {};\nconst alerts = items.filter(i => i.json.alert_type).map(i => i.json);\nconst journeys = items.filter(i => i.json.origin_station).map(i => i.json);\nconst events = items.filter(i => i.json.event_name).map(i => i.json);\n\n// Current time\nconst now = new Date();\n\n// Determine status emoji based on alerts\nlet statusEmoji = '✅';\nlet statusText = 'All clear — no issues!';\n\nconst hasDelay = alerts.some(a => a.alert_type === 'delay');\nconst hasWeather = alerts.some(a => a.alert_type === 'weather');\nconst hasClosure = alerts.some(a => a.alert_type === 'closure');\nconst hasEvent = events.some(e => e.expected_crowd === 'extreme' || e.expected_crowd === 'high');\n\nif (hasClosure) {\n  statusEmoji = '🚫';\n  statusText = 'Line closure — check alternatives';\n} else if (hasDelay && hasWeather) {\n  statusEmoji = '⚠️🌧️';\n  statusText = 'Delays + rain — allow extra time';\n} else if (hasDelay && hasEvent) {\n  statusEmoji = '⚠️🎉';\n  statusText = 'Delays + busy event nearby';\n} else if (hasDelay) {\n  statusEmoji = '⚠️';\n  statusText = 'Minor delays reported';\n} else if (hasWeather) {\n  statusEmoji = '🌧️';\n  statusText = 'Weather alert';\n} else if (hasEvent) {\n  statusEmoji = '🎉';\n  statusText = 'Expect crowds — event nearby';\n}\n\nreturn [{\n  json: {\n    status: {\n      emoji: statusEmoji,\n      text: statusText\n    },\n    user: {\n      name: profile.name || 'Traveller',\n      home_station: profile.home_station,\n      work_station: profile.work_station,\n      preferred_lines: profile.preferred_lines || [],\n      style: profile.notification_style || 'friendly'\n    },\n    current_time: {\n      day: now.toLocaleDateString('en-GB', { weekday: 'long' }),\n      date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }),\n      time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })\n    },\n    alerts: alerts,\n    journeys: journeys,\n    events: events\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "1abbccdb-9bcd-4a3a-81bf-1bd421055979",
+      "name": "Context Builder"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=HEADLINE (use exactly as first line):\n{{ $json.status.emoji }} {{ $json.status.text }}\n\nUSER INFO:\n- Name: {{ $json.user.name }}\n- Commute: {{ $json.user.home_station }} → {{ $json.user.work_station }}\n- Preferred lines: {{ $json.user.preferred_lines.join(', ') }}\n\nTIME: {{ $json.current_time.day }}, {{ $json.current_time.date }} at {{ $json.current_time.time }}\n\nALERTS:\n{{ $json.alerts.map(a => '- ' + a.alert_type + ': ' + a.message_sent).join('\\n') || 'None' }}\n\nEVENTS:\n{{ $json.events.map(e => '- ' + e.event_name + ' (' + e.expected_crowd + ' crowd)').join('\\n') || 'None' }}\n\nJOURNEYS:\n{{ $json.journeys.map(j => '- ' + j.origin_station + ' → ' + j.destination_station + ' via ' + j.lines_used.join('/') + ' (' + j.duration_minutes + ' min)').join('\\n') || 'None' }}\n\nGenerate the travel update now:",
+        "options": {
+          "systemMessage": "You are OnTimeLondon AI — a friendly London travel assistant.\n\nYOUR PERSONALITY:\n- Warm, helpful, like a local friend\n- Use emojis naturally 🚇 🌧️ ⚠️ ✅ 💪\n- Brief but informative\n\nMESSAGE FORMAT:\n1. STATUS HEADLINE — use the exact emoji and text provided in the user prompt (do not change it)\n2. DETAILS (2-3 short sentences max)\n   - Mention relevant alerts\n   - Suggest alternatives if needed\n   - Reference their usual route if relevant\n3. SIGN OFF (friendly one-liner)\n\nKEEP IT SHORT — like a text message, not an email."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        832,
+        0
+      ],
+      "id": "202c21fb-65c6-4ea6-8e9a-23c07a52e52c",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        832,
+        256
+      ],
+      "id": "259874fb-80fb-4823-a9a3-49875c2d1b2f",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "HbDfUq8SrYLfl2XO",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "**🗣️ AGENT 5 — COMMUNICATION AGENT**\n\nPURPOSE: Generates personalised, friendly travel updates\n\nDATA SOURCES:\n- user_profile — who they are, preferred lines\n- alert_history — past notifications sent\n- journey_history — their travel patterns\n- events — upcoming city events\n\nLOGIC:\n- Code node determines status emoji based on alert types\n- AI Agent (Llama) creates natural language message\n\nOUTPUT: Short, emoji-rich travel update like a text from a friend",
+        "height": 352,
+        "width": 464
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        544,
+        -464
+      ],
+      "typeVersion": 1,
+      "id": "ae340f4c-bee4-446f-af06-7b44aadfc209",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get User Profile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Recent Alerts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Journey History",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Upcoming Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get User Profile": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Alerts": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get Journey History": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Get Upcoming Events": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Context Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Builder": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "4041db26-7074-4952-9f85-7424168070e5",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "MJ26ZAls6SypAyTu",
+  "tags": []
+}

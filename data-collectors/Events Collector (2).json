@@ -1,0 +1,154 @@
+{
+  "name": "Events Collector",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 12
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -288,
+        -224
+      ],
+      "id": "7804aa59-1b0a-473e-bc16-b37f6a7f1d6e",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://app.ticketmaster.com/discovery/v2/events.json?city=London&countryCode=GB&size=50&apikey=FzQSGegNKvmG9wnJyEjo0puSFNuoHBbv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -80,
+        -224
+      ],
+      "id": "86dd0f0a-bb42-47f0-b3da-410cde5cbba3",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst events = $input.first().json._embedded?.events || [];\n\nfor (const event of events) {\n  const venue = event._embedded?.venues?.[0];\n  \n  items.push({\n    json: {\n      event_name: event.name,\n      event_type: event.type || 'event',\n      venue: venue?.name || 'Unknown',\n      nearest_station: null,\n      expected_attendance: null,\n      event_start: event.dates?.start?.dateTime || null,\n      event_end: event.dates?.end?.dateTime || null,\n      source: 'ticketmaster',\n      timestamp: new Date().toISOString()\n    }\n  });\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        -224
+      ],
+      "id": "ce1db6ae-ffcd-4b43-bba4-92ff198f310a",
+      "name": "extracts the event data"
+    },
+    {
+      "parameters": {
+        "tableId": "event_calendar",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "event_name",
+              "fieldValue": "={{ $json.event_name }}"
+            },
+            {
+              "fieldId": "event_type",
+              "fieldValue": "={{ $json.event_type }}"
+            },
+            {
+              "fieldId": "venue",
+              "fieldValue": "={{ $json.venue }}"
+            },
+            {
+              "fieldId": "nearest_station",
+              "fieldValue": "={{ $json.nearest_station }}"
+            },
+            {
+              "fieldId": "expected_attendence",
+              "fieldValue": "={{ $json.expected_attendance }}"
+            },
+            {
+              "fieldId": "event_start",
+              "fieldValue": "={{ $json.event_start }}"
+            },
+            {
+              "fieldId": "event_end",
+              "fieldValue": "={{ $json.event_end }}"
+            },
+            {
+              "fieldId": "source",
+              "fieldValue": "={{ $json.source }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        336,
+        -224
+      ],
+      "id": "5389d46d-93fd-4e78-9134-b25a2660ad34",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "extracts the event data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extracts the event data": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5a5ccf39-aecf-4a24-8c30-5215ad6c3d23",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "MI69lG3kte2t9SGR",
+  "tags": []
+}

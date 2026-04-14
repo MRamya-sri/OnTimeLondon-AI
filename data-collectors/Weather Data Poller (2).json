@@ -1,0 +1,150 @@
+{
+  "name": "Weather Data Poller",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -224,
+        -128
+      ],
+      "id": "e76e94fa-fa80-451b-b091-23f2915b5d59",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://api.openweathermap.org/data/2.5/weather?q=London,uk&appid=268921ce47c3141030f076777ff4a5e0&units=metric",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -16,
+        -128
+      ],
+      "id": "388dc17b-f1cf-45f0-ab62-c7770e098a83",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nreturn [{\n  json: {\n    temperature: data.main.temp,\n    humidity: data.main.humidity,\n    wind_speed: data.wind.speed,\n    rain_mm: data.rain ? data.rain['1h'] || 0 : 0,\n    weather_condition: data.weather[0].main,\n    forecast_48h: null,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -128
+      ],
+      "id": "1835e4aa-704b-459d-8a93-835c5f8d33bf",
+      "name": "Fetching_weather_fields"
+    },
+    {
+      "parameters": {
+        "tableId": "weather_data",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "temperature",
+              "fieldValue": "={{ $json.temperature }}"
+            },
+            {
+              "fieldId": "humidity",
+              "fieldValue": "={{ $json.humidity }}"
+            },
+            {
+              "fieldId": "wind_speed",
+              "fieldValue": "={{ $json.wind_speed }}"
+            },
+            {
+              "fieldId": "rain_mm",
+              "fieldValue": "={{ $json.rain_mm }}"
+            },
+            {
+              "fieldId": "weather_condition",
+              "fieldValue": "={{ $json.weather_condition }}"
+            },
+            {
+              "fieldId": "forecast_48h",
+              "fieldValue": "={{ $json.forecast_48h }}"
+            },
+            {
+              "fieldId": "timestamp",
+              "fieldValue": "={{ $json.timestamp }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -128
+      ],
+      "id": "a9e8efbd-1190-43be-b2b8-45dac57fad54",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Fetching_weather_fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetching_weather_fields": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6a9201c6-339d-44c2-9da0-5f2d7c9fdb8e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "OBQufY4rCXSUBLlt",
+  "tags": []
+}

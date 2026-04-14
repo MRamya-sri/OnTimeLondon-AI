@@ -1,0 +1,136 @@
+{
+  "name": "Data Setup - Stations",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst stopPoints = data.stopPoints || data;\n\nconst stations = [];\n\nfor (const stop of stopPoints) {\n  if (stop.stopType === 'NaptanMetroStation' || \n      stop.stopType === 'NaptanRailStation') {\n    \n    const lines = stop.lineModeGroups\n      ?.filter(g => ['tube', 'overground', 'elizabeth-line', 'dlr'].includes(g.modeName))\n      ?.flatMap(g => g.lineIdentifier) || [];\n    \n    // Try multiple possible field names for station name\n    let stationName = stop.commonName || stop.name || stop.stationName || stop.id;\n    \n    // Clean up the name - remove \"Underground Station\", \"Rail Station\" etc.\n    stationName = stationName\n      .replace(' Underground Station', '')\n      .replace(' Rail Station', '')\n      .replace(' DLR Station', '')\n      .replace(' Station', '');\n    \n    stations.push({\n      json: {\n        station_id: stop.id,\n        name: stationName,\n        latitude: stop.lat || null,\n        longitude: stop.lon || null,\n        zone: stop.additionalProperties?.find(p => p.key === 'Zone')?.value || null,\n        lines: lines\n      }\n    });\n  }\n}\n\nreturn stations;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        64
+      ],
+      "id": "caef9f5a-96eb-4cf9-878b-99574f84529a",
+      "name": "Parse_Stations"
+    },
+    {
+      "parameters": {
+        "url": "https://api.tfl.gov.uk/StopPoint/Mode/tube,overground,elizabeth-line,dlr",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        160,
+        64
+      ],
+      "id": "a355dc8f-329b-4ece-bb0e-92af06407e10",
+      "name": "Get_Stations"
+    },
+    {
+      "parameters": {
+        "tableId": "stations",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "station_id",
+              "fieldValue": "={{ $json.station_id }}"
+            },
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $json.name }}"
+            },
+            {
+              "fieldId": "latitude",
+              "fieldValue": "={{ $json.latitude }}"
+            },
+            {
+              "fieldId": "longitude",
+              "fieldValue": "={{ $json.longitude }}"
+            },
+            {
+              "fieldId": "zone",
+              "fieldValue": "={{ $json.zone }}"
+            },
+            {
+              "fieldId": "lines",
+              "fieldValue": "={{ $json.lines }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        528,
+        64
+      ],
+      "id": "aef3736c-1b42-41b2-b73b-0e94af114e7b",
+      "name": "Insert_Stations",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        64
+      ],
+      "id": "f8d02964-1346-4c6f-8ef6-1cecc1ebce8f",
+      "name": "When clicking ‘Execute workflow’"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Parse_Stations": {
+      "main": [
+        [
+          {
+            "node": "Insert_Stations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Stations": {
+      "main": [
+        [
+          {
+            "node": "Parse_Stations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get_Stations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "27c97a93-6a1e-4031-8970-97ed670281ec",
+  "meta": {
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "GaSeKQGtstylE6Tx",
+  "tags": []
+}

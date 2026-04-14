@@ -1,0 +1,217 @@
+{
+  "name": "Optimizer workflow Agent 3",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "GET vs POST\n===========\nGET = \"Give me info\" (reading)\n→ Fetch stations, get weather, read status\n→ No data sent, just asking\n\nPOST = \"Here's info, process it\" (sending)\n→ Find route, save record, create user\n→ Data sent in request body\n\nExample:\nGET api.tfl.gov.uk/Line/bakerloo → reads status\nPOST /route-optimizer {origin, dest} → finds route",
+        "height": 320,
+        "width": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -464,
+        -752
+      ],
+      "typeVersion": 1,
+      "id": "5e2b73f0-4d99-427d-83d2-d392d28724bc",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "**Example: POST to our webhook with:**\n{\n  \"origin\": \"King's Cross\",\n  \"destination\": \"Canary Wharf\"\n}\n\n\"Hey n8n, HERE's my start and end point, FIND me a route\"\n\nData sent → Processing happens → Gets response back",
+        "height": 224,
+        "width": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -80,
+        -720
+      ],
+      "typeVersion": 1,
+      "id": "889b9f68-226d-49ea-aae1-d02302b28c8c",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "connections",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        -128
+      ],
+      "id": "4ec8d591-5c60-4141-bc77-b4609d13bf76",
+      "name": "Get All Conections",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "stations",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        32,
+        -128
+      ],
+      "id": "5fa81975-8ec6-46e2-b340-bc955689aa09",
+      "name": "Get All Stations",
+      "executeOnce": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get input data - check your node names match exactly!\nconst connectionsNode = $input.all().length > 0 ? [] : [];\n\n// Get data from previous nodes\nlet connections = [];\nlet stations = [];\n\ntry {\n  connections = $('Get All Conections').all().map(item => item.json);\n} catch(e) {\n  try {\n    connections = $('Get All Connections').all().map(item => item.json);\n  } catch(e2) {\n    return [{ json: { error: \"Cannot find connections node\", details: e2.message }}];\n  }\n}\n\ntry {\n  stations = $('Get All Stations').all().map(item => item.json);\n} catch(e) {\n  return [{ json: { error: \"Cannot find stations node\", details: e.message }}];\n}\n\nconst webhookData = $('Webhook').first().json;\nconst origin = webhookData.body.origin;\nconst destination = webhookData.body.destination;\n\n// Build adjacency list (graph)\nconst graph = {};\n\nfor (const conn of connections) {\n  const from = conn.from_station_id;\n  const to = conn.to_station_id;\n  const weight = conn.base_time_seconds || 120;\n  \n  if (!graph[from]) graph[from] = [];\n  if (!graph[to]) graph[to] = [];\n  \n  graph[from].push({ station: to, time: weight, line: conn.line_id });\n  graph[to].push({ station: from, time: weight, line: conn.line_id });\n}\n\n// Debug\nconst originNeighbors = graph[origin] || [];\nconst destNeighbors = graph[destination] || [];\n\n// Dijkstra's Algorithm\nfunction dijkstra(start, end) {\n  const distances = {};\n  const previous = {};\n  const lineUsed = {};\n  const visited = new Set();\n  const queue = [];\n  \n  for (const station of Object.keys(graph)) {\n    distances[station] = Infinity;\n  }\n  distances[start] = 0;\n  queue.push({ station: start, distance: 0 });\n  \n  while (queue.length > 0) {\n    queue.sort((a, b) => a.distance - b.distance);\n    const current = queue.shift();\n    \n    if (visited.has(current.station)) continue;\n    visited.add(current.station);\n    \n    if (current.station === end) break;\n    \n    const neighbors = graph[current.station] || [];\n    for (const neighbor of neighbors) {\n      if (visited.has(neighbor.station)) continue;\n      \n      const newDistance = distances[current.station] + neighbor.time;\n      \n      if (newDistance < distances[neighbor.station]) {\n        distances[neighbor.station] = newDistance;\n        previous[neighbor.station] = current.station;\n        lineUsed[neighbor.station] = neighbor.line;\n        queue.push({ station: neighbor.station, distance: newDistance });\n      }\n    }\n  }\n  \n  const path = [];\n  let current = end;\n  \n  while (current && current !== start) {\n    path.unshift({\n      station: current,\n      line: lineUsed[current]\n    });\n    current = previous[current];\n  }\n  \n  if (current === start) {\n    path.unshift({ station: start, line: null });\n  }\n  \n  return {\n    path: path,\n    totalTime: distances[end],\n    totalMinutes: Math.round(distances[end] / 60)\n  };\n}\n\nconst result = dijkstra(origin, destination);\n\nreturn [{\n  json: {\n    debug: {\n      connectionsCount: connections.length,\n      stationsCount: stations.length,\n      originNeighborsCount: originNeighbors.length,\n      destNeighborsCount: destNeighbors.length,\n      originSample: originNeighbors.slice(0, 3),\n      destSample: destNeighbors.slice(0, 3)\n    },\n    origin: origin,\n    destination: destination,\n    route: result.path,\n    totalSeconds: result.totalTime,\n    totalMinutes: result.totalMinutes,\n    message: `Route found: ${result.path.length} stations, ${result.totalMinutes} minutes`\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        -128
+      ],
+      "id": "dc80d9d0-bbf1-4021-8a3f-e76f69fcdaab",
+      "name": "Dijkstra Algorithm"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "routeoptimizer",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -416,
+        -128
+      ],
+      "id": "8091e232-38ea-4dc0-8c13-4e961b9f4bbf",
+      "name": "Webhook",
+      "webhookId": "316bf9f2-2bbe-4289-b690-7d176d39d743"
+    },
+    {
+      "parameters": {
+        "content": "AGENT 3: ROUTE OPTIMIZER\n========================\nFinds best route from A to B using Dijkstra's algorithm\n\nInput: origin + destination station IDs\nOutput: optimal route with stations, lines, total time\n\nWebhook receives POST request → \nFetches graph data → Runs Dijkstra → Returns route",
+        "height": 384,
+        "width": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -656,
+        384
+      ],
+      "typeVersion": 1,
+      "id": "75aa9a25-3436-4862-b50f-33d0e18d0fc2",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "WEBHOOK (POST)\n==============\nReceives: { origin: \"940GZZLUKSX\", destination: \"940GZZLUWLO\" }\n\nTest with:\ncurl -X POST http://localhost:5678/webhook-test/routeoptimizer \n-H \"Content-Type: application/json\" \n-d '{\"origin\": \"940GZZLUKSX\", \"destination\": \"940GZZLUWLO\"}'",
+        "height": 288,
+        "width": 336,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -304,
+        400
+      ],
+      "typeVersion": 1,
+      "id": "ee2793ef-5092-4a42-ad16-3b0fd4cdbdcb",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "DIJKSTRA'S ALGORITHM\n====================\n1. Build graph from connections (edges)\n2. Start at origin, distance = 0\n3. Visit neighbors, calculate distances\n4. Always pick shortest unvisited next\n5. Stop when destination reached\n6. Trace back path\n\nWeight = travel time (seconds)\nLower weight = faster route = preferred",
+        "height": 336,
+        "width": 400,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        96,
+        400
+      ],
+      "typeVersion": 1,
+      "id": "3731adcc-8ad2-4168-97f7-15f646a04889",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "KNOWN LIMITATION\n================\nTube (940GZZLU...) and Elizabeth/Overground (910G...) \nnetworks not connected in current data.\n\nFuture work: Add interchange station mapping",
+        "height": 240,
+        "width": 304,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        544,
+        400
+      ],
+      "typeVersion": 1,
+      "id": "243b456e-d8ec-404b-9451-d54634f70dfb",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get All Conections": {
+      "main": [
+        [
+          {
+            "node": "Get All Stations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Stations": {
+      "main": [
+        [
+          {
+            "node": "Dijkstra Algorithm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get All Conections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d6db5aac-6b4f-4863-ba73-d0e96b00c8ab",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "nTThEF45ZUYVFh1w",
+  "tags": []
+}

@@ -1,0 +1,438 @@
+{
+  "name": "OnTimeLondon AI - Full Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ontime-pipeline",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -272,
+        -112
+      ],
+      "id": "bc41559b-6d42-4079-85b7-29bfed69ce93",
+      "name": "Webhook",
+      "webhookId": "3a31fd79-7aad-481e-99d3-2059a7f8ee4d"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "live_status",
+        "limit": 200
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -112
+      ],
+      "id": "a33b1051-6d01-409c-a6a6-8ab7815a07fc",
+      "name": "Get Live Status",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\nconst webhookData = $('Webhook').first().json.body;\n\n// Group readings by line\nconst lineGroups = {};\nfor (const row of rows) {\n  if (!lineGroups[row.line_id]) {\n    lineGroups[row.line_id] = [];\n  }\n  lineGroups[row.line_id].push(row);\n}\n\nconst alerts = [];\nconst lineStatus = {};\n\nfor (const lineId in lineGroups) {\n  const readings = lineGroups[lineId];\n  \n  if (readings.length < 3) continue;\n  \n  const severities = readings.map(r => r.status_severity);\n  const mean = severities.reduce((sum, val) => sum + val, 0) / severities.length;\n  const squaredDiffs = severities.map(val => Math.pow(val - mean, 2));\n  const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / severities.length;\n  const std = Math.sqrt(variance);\n  \n  const latest = readings[0];\n  const currentValue = latest.status_severity;\n  const zScore = std === 0 ? 0 : (mean - currentValue) / std;\n  \n  lineStatus[lineId] = {\n    line_name: latest.line_name,\n    current_severity: currentValue,\n    status_description: latest.status_description,\n    z_score: parseFloat(zScore.toFixed(2)),\n    is_anomaly: zScore > 2,\n    disruption_reason: latest.distruption_reason || null\n  };\n  \n  if (zScore > 2) {\n    alerts.push({\n      line_id: lineId,\n      line_name: latest.line_name,\n      severity: currentValue,\n      z_score: parseFloat(zScore.toFixed(2)),\n      reason: latest.distruption_reason || 'Unknown'\n    });\n  }\n}\n\nreturn {\n  user_id: webhookData.user_id,\n  origin: webhookData.origin,\n  destination: webhookData.destination,\n  alerts: alerts,\n  line_status: lineStatus,\n  has_anomalies: alerts.length > 0,\n  checked_at: new Date().toISOString()\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        -112
+      ],
+      "id": "aac3bc7e-d691-4df3-b023-f5c5861cb0f0",
+      "name": "Agent 1 - Z-Score Detection(Real Time monitor)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst now = new Date();\n\n// Get all lines that need prediction (focus on lines with issues, but predict all for completeness)\nconst linesToPredict = Object.keys(input.line_status);\n\nconst predictions = [];\nfor (const lineId of linesToPredict) {\n  const status = input.line_status[lineId];\n  \n  predictions.push({\n    line_id: lineId,\n    line_name: status.line_name,\n    hour: now.getHours(),\n    day_of_week: now.getDay(),\n    status_severity: status.current_severity,\n    is_anomaly: status.is_anomaly,\n    z_score: status.z_score\n  });\n}\n\nreturn {\n  user_id: input.user_id,\n  origin: input.origin,\n  destination: input.destination,\n  alerts: input.alerts,\n  has_anomalies: input.has_anomalies,\n  lines_to_predict: predictions,\n  checked_at: input.checked_at\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        -112
+      ],
+      "id": "7a57ba5d-7da2-4c97-9b66-67482685567f",
+      "name": "Agent 2 - Prepare LSTM Input (Delay Predictor)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:5000/predict",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"line_id\": \"{{ $json.line_id }}\",\n  \"hour\": {{ $json.hour }},\n  \"day_of_week\": {{ $json.day_of_week }},\n  \"status_severity\": {{ $json.status_severity }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        672,
+        -112
+      ],
+      "id": "36ad6203-eaee-44da-8344-ba1a96140f4b",
+      "name": "LSTM API Call"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\n\n// Build predictions map from LSTM results\nconst predictions = {};\nfor (const item of items) {\n  if (item.line_id) {\n    predictions[item.line_id] = {\n      is_delayed: item.is_delayed,\n      confidence: item.confidence,\n      delay_probability: item.delay_probability || (item.is_delayed === 1 ? 0.8 : 0.2)\n    };\n  }\n}\n\n// We'll pass forward what we need - the next node will get user data from webhook\nreturn {\n  delay_predictions: predictions,\n  predicted_at: new Date().toISOString()\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        -112
+      ],
+      "id": "46ae1945-4be6-42ad-946b-fb2d05713319",
+      "name": "Agent 2 - Collect Predictions"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "lines_to_predict",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        496,
+        -112
+      ],
+      "id": "dc1d355f-7acc-4140-b6a7-e3fa38165609",
+      "name": "Split Lines"
+    },
+    {
+      "parameters": {
+        "jsCode": "const predictions = $input.first().json;\nconst webhookData = $('Webhook').first().json.body;\nconst agent1Data = $('Agent 1 - Z-Score Detection(Real Time monitor)').first().json;\n\nreturn {\n  user_id: webhookData.user_id,\n  origin: webhookData.origin,\n  destination: webhookData.destination,\n  alerts: agent1Data.alerts,\n  has_anomalies: agent1Data.has_anomalies,\n  line_status: agent1Data.line_status,\n  delay_predictions: predictions.delay_predictions,\n  predicted_at: predictions.predicted_at\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        -112
+      ],
+      "id": "3864281d-e639-4c9d-93b1-07f1309bc4d7",
+      "name": "Agent 3 - Prepare Route Data (Route Optimizer)"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "connections",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1248,
+        -112
+      ],
+      "id": "72f98526-ec84-4080-bd6c-45e82d398c86",
+      "name": "Get Connections",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "stations",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        -112
+      ],
+      "id": "ec53f8bd-3c8d-4c3d-bb31-17d836abb21c",
+      "name": "Get Stations",
+      "executeOnce": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const stations = $input.all().map(i => i.json);\nconst connections = $('Get Connections').all().map(i => i.json);\nconst webhookData = $('Webhook').first().json.body;\nconst predictions = $('Agent 2 - Collect Predictions').first().json;\n\nconst origin = webhookData.origin;\nconst destination = webhookData.destination;\nconst delayPredictions = predictions.delay_predictions;\n\n// Build graph\nconst graph = {};\n\nfor (const conn of connections) {\n  const from = conn.from_station_id;\n  const to = conn.to_station_id;\n  let weight = conn.base_time_seconds || 120;\n  \n  const lineId = conn.line_id;\n  if (delayPredictions[lineId]) {\n    const prediction = delayPredictions[lineId];\n    if (prediction.is_delayed === 1 || prediction.delay_probability > 0.3) {\n      weight = weight * (1 + prediction.delay_probability);\n    }\n  }\n  \n  if (!graph[from]) graph[from] = [];\n  if (!graph[to]) graph[to] = [];\n  \n  graph[from].push({ station: to, time: weight, line: lineId });\n  graph[to].push({ station: from, time: weight, line: lineId });\n}\n\n// Dijkstra\nconst distances = {};\nconst previous = {};\nconst lineUsed = {};\nconst visited = new Set();\nconst queue = [];\n\nfor (const station of Object.keys(graph)) {\n  distances[station] = Infinity;\n}\ndistances[origin] = 0;\nqueue.push({ station: origin, distance: 0 });\n\nwhile (queue.length > 0) {\n  queue.sort((a, b) => a.distance - b.distance);\n  const current = queue.shift();\n  \n  if (visited.has(current.station)) continue;\n  visited.add(current.station);\n  \n  if (current.station === destination) break;\n  \n  const neighbors = graph[current.station] || [];\n  for (const neighbor of neighbors) {\n    if (visited.has(neighbor.station)) continue;\n    \n    const newDistance = distances[current.station] + neighbor.time;\n    \n    if (newDistance < distances[neighbor.station]) {\n      distances[neighbor.station] = newDistance;\n      previous[neighbor.station] = current.station;\n      lineUsed[neighbor.station] = neighbor.line;\n      queue.push({ station: neighbor.station, distance: newDistance });\n    }\n  }\n}\n\n// Build path\nconst path = [];\nlet current = destination;\n\nwhile (current && current !== origin) {\n  path.unshift({ station_id: current, line: lineUsed[current] });\n  current = previous[current];\n}\n\nif (current === origin) {\n  path.unshift({ station_id: origin, line: null });\n}\n\n// Station names\nconst stationMap = {};\nfor (const s of stations) {\n  stationMap[s.station_id] = s.name;\n}\n\nconst pathWithNames = path.map(p => ({\n  station_id: p.station_id,\n  station_name: stationMap[p.station_id] || p.station_id,\n  line: p.line\n}));\n\nconst linesUsed = [...new Set(path.map(p => p.line).filter(l => l))];\nconst totalSeconds = distances[destination];\nconst totalMinutes = Math.round(totalSeconds / 60);\n\nreturn {\n  user_id: webhookData.user_id,\n  origin: origin,\n  origin_name: stationMap[origin] || origin,\n  destination: destination,\n  destination_name: stationMap[destination] || destination,\n  route: pathWithNames,\n  lines_used: linesUsed,\n  total_minutes: totalMinutes,\n  total_seconds: totalSeconds,\n  delay_predictions: delayPredictions,\n  route_calculated_at: new Date().toISOString()\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        -112
+      ],
+      "id": "b98e067b-636e-441f-9de2-200946b4c592",
+      "name": "Agent 3 - Dijkstra Algorithm"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst userId = input.user_id;\nconst route = input.route;\nconst linesUsed = input.lines_used;\n\n// Simulated user history (in real app, fetch from Supabase)\nconst userHistory = {\n  \"user_001\": { trips: 12, preferred_lines: [\"district\", \"central\"], avg_rating: 4.2 },\n  \"user_002\": { trips: 3, preferred_lines: [\"northern\"], avg_rating: 3.8 },\n  \"guest_001\": { trips: 0, preferred_lines: [], avg_rating: null }\n};\n\nconst history = userHistory[userId] || { trips: 0, preferred_lines: [], avg_rating: null };\nconst tripCount = history.trips;\n\n// Decide algorithm\nlet algorithm;\nlet recommendation;\nlet reason;\n\nif (tripCount === 0) {\n  // NEW USER: Collaborative Filtering\n  algorithm = \"collaborative_filtering\";\n  recommendation = \"suggested_route\";\n  reason = \"New user — recommending popular route based on similar commuters\";\n  \n} else if (tripCount <= 5) {\n  // FEW TRIPS: Hybrid approach\n  algorithm = \"hybrid\";\n  const epsilon = 0.3;\n  const randomValue = Math.random();\n  \n  if (randomValue < epsilon) {\n    recommendation = \"explore_alternative\";\n    reason = `Exploring! (random ${randomValue.toFixed(2)} < ε ${epsilon}) — try a different route today`;\n  } else {\n    recommendation = \"suggested_route\";\n    reason = `Exploiting your history (random ${randomValue.toFixed(2)} >= ε ${epsilon}) — using your preferred lines`;\n  }\n  \n} else {\n  // EXPERIENCED USER: Epsilon-Greedy\n  algorithm = \"epsilon_greedy\";\n  const epsilon = 0.1;\n  const randomValue = Math.random();\n  \n  if (randomValue < epsilon) {\n    recommendation = \"explore_alternative\";\n    reason = `Exploring! (random ${randomValue.toFixed(2)} < ε ${epsilon}) — you might find a better route`;\n  } else {\n    recommendation = \"suggested_route\";\n    reason = `Exploiting! (random ${randomValue.toFixed(2)} >= ε ${epsilon}) — sticking with what works for you`;\n  }\n}\n\n// Check if route uses preferred lines\nconst usesPreferredLines = linesUsed.some(line => history.preferred_lines.includes(line));\n\nreturn {\n  user_id: userId,\n  origin: input.origin,\n  origin_name: input.origin_name,\n  destination: input.destination,\n  destination_name: input.destination_name,\n  route: route,\n  lines_used: linesUsed,\n  total_minutes: input.total_minutes,\n  algorithm_used: algorithm,\n  recommendation: recommendation,\n  reason: reason,\n  user_profile: {\n    trip_count: tripCount,\n    preferred_lines: history.preferred_lines,\n    uses_preferred_lines: usesPreferredLines\n  },\n  delay_predictions: input.delay_predictions,\n  learning_applied_at: new Date().toISOString()\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1824,
+        -112
+      ],
+      "id": "7f87996f-8583-47e3-829c-30ad65fd087a",
+      "name": "Agent 4 - Learning Agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst delayPredictions = input.delay_predictions || {};\nconst linesUsed = input.lines_used || [];\nconst userProfile = input.user_profile || {};\nconst preferredLines = userProfile.preferred_lines || [];\n\n// Combine: lines on current route + user's preferred lines (no duplicates)\nconst linesToCheck = [...new Set([...linesUsed, ...preferredLines])];\n\n// Check delays only for relevant lines\nlet alertsSummary = 'None';\nconst delayedLinesOnRoute = [];\nconst delayedPreferredLines = [];\n\nfor (const line of linesUsed) {\n  const prediction = delayPredictions[line];\n  if (prediction) {\n    if (prediction.is_delayed === 1) {\n      delayedLinesOnRoute.push(`${line}: delays reported`);\n    } else if (prediction.delay_probability > 0.3) {\n      delayedLinesOnRoute.push(`${line}: ${Math.round(prediction.delay_probability * 100)}% delay chance`);\n    }\n  }\n}\n\n// Check preferred lines that are NOT on current route (for heads up)\nfor (const line of preferredLines) {\n  if (!linesUsed.includes(line)) {\n    const prediction = delayPredictions[line];\n    if (prediction && (prediction.is_delayed === 1 || prediction.delay_probability > 0.3)) {\n      delayedPreferredLines.push(`${line}: ${Math.round(prediction.delay_probability * 100)}% delay chance`);\n    }\n  }\n}\n\n// Determine status based on CURRENT ROUTE only\nlet statusEmoji = '✅';\nlet statusText = 'All clear — smooth travels!';\n\nif (delayedLinesOnRoute.length > 0) {\n  const hasActualDelay = linesUsed.some(line => delayPredictions[line]?.is_delayed === 1);\n  if (hasActualDelay) {\n    statusEmoji = '⚠️';\n    statusText = 'Delays on your route — allow extra time';\n  } else {\n    statusEmoji = '🟡';\n    statusText = 'Minor disruptions possible on your route';\n  }\n  alertsSummary = delayedLinesOnRoute.join(', ');\n} else if (delayedPreferredLines.length > 0) {\n  // Route is clear, but preferred lines have issues\n  alertsSummary = 'Your route is clear! Heads up: ' + delayedPreferredLines.join(', ');\n}\n\n// Build route summary\nconst routeSummary = input.route.map(r => r.station_name).join(' → ');\n\n// Current time\nconst now = new Date();\n\nreturn {\n  user_id: input.user_id,\n  origin_name: input.origin_name,\n  destination_name: input.destination_name,\n  route: input.route,\n  route_summary: routeSummary,\n  lines_used: input.lines_used,\n  total_minutes: input.total_minutes,\n  status_emoji: statusEmoji,\n  status_text: statusText,\n  recommendation: input.recommendation,\n  reason: input.reason,\n  alerts_summary: alertsSummary,\n  user_type: userProfile.trip_count === 0 ? 'new' : (userProfile.trip_count <= 5 ? 'learning' : 'experienced'),\n  current_time: {\n    day: now.toLocaleDateString('en-GB', { weekday: 'long' }),\n    date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }),\n    time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        -112
+      ],
+      "id": "a00e12ad-5a7b-45e8-bf46-15ab109baac9",
+      "name": "Context Builder"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=HEADLINE (use exactly as first line):\n{{ $json.status_emoji }} {{ $json.status_text }}\n\nUSER INFO:\n- User: {{ $json.user_id }}\n- Journey: {{ $json.origin_name }} → {{ $json.destination_name }}\n- Route: {{ $json.route_summary }}\n- Lines: {{ $json.lines_used.join(', ') }}\n- Time: {{ $json.total_minutes }} minutes\n\nRECOMMENDATION: {{ $json.recommendation }}\nREASON: {{ $json.reason }}\n\nALERTS:\n{{ $json.alerts_summary }}\n\nGenerate a friendly, brief travel update message (2-3 sentences max). Use 1-2 relevant emojis. Start with the status emoji. Keep it like a text from a friend, not formal.",
+        "options": {
+          "systemMessage": "You are OnTimeLondon AI — a friendly London travel assistant.\n\nYOUR PERSONALITY:\n- Warm, helpful, like a local friend\n- Use emojis naturally 🚇 🌧️ ⚠️ ✅ 💪\n- Brief but informative\n\nMESSAGE FORMAT:\n1. STATUS HEADLINE — use the exact emoji and text provided in the user prompt (do not change it)\n2. DETAILS (2-3 short sentences max)\n   - Mention relevant alerts\n   - Suggest alternatives if needed\n   - Reference their usual route if relevant\n3. SIGN OFF (friendly one-liner)\n\nKEEP IT SHORT — like a text message, not an email."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        2208,
+        -112
+      ],
+      "id": "2753273e-7eb9-4886-bd51-d398ff88acec",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2208,
+        128
+      ],
+      "id": "774f232d-ee8f-4c2d-afb2-a7b571915846",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "HbDfUq8SrYLfl2XO",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2512,
+        -112
+      ],
+      "id": "59efbe1f-ff9a-4b68-9e30-4505392fc0d8",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Live Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Live Status": {
+      "main": [
+        [
+          {
+            "node": "Agent 1 - Z-Score Detection(Real Time monitor)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent 1 - Z-Score Detection(Real Time monitor)": {
+      "main": [
+        [
+          {
+            "node": "Agent 2 - Prepare LSTM Input (Delay Predictor)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent 2 - Prepare LSTM Input (Delay Predictor)": {
+      "main": [
+        [
+          {
+            "node": "Split Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LSTM API Call": {
+      "main": [
+        [
+          {
+            "node": "Agent 2 - Collect Predictions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Lines": {
+      "main": [
+        [
+          {
+            "node": "LSTM API Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent 2 - Collect Predictions": {
+      "main": [
+        [
+          {
+            "node": "Agent 3 - Prepare Route Data (Route Optimizer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent 3 - Prepare Route Data (Route Optimizer)": {
+      "main": [
+        [
+          {
+            "node": "Get Connections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Connections": {
+      "main": [
+        [
+          {
+            "node": "Get Stations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Stations": {
+      "main": [
+        [
+          {
+            "node": "Agent 3 - Dijkstra Algorithm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent 3 - Dijkstra Algorithm": {
+      "main": [
+        [
+          {
+            "node": "Agent 4 - Learning Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Builder": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent 4 - Learning Agent": {
+      "main": [
+        [
+          {
+            "node": "Context Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e64e2fa8-4cf7-4842-9af5-fb34479e528f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "6RRGYQRDkFaF8Pjj",
+  "tags": []
+}

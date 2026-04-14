@@ -1,0 +1,150 @@
+{
+  "name": "Social Media Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -224,
+        -192
+      ],
+      "id": "926486c9-f8f7-4b9d-8516-f9aec7c94e6d",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/LondonUnderground/new.json?limit=20",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -16,
+        -192
+      ],
+      "id": "3e3f2aea-c76c-4b76-8e1f-615f6e500573",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst posts = $input.first().json.data.children;\n\nfor (const post of posts) {\n  const data = post.data;\n  const text = data.title + ' ' + (data.selftext || '');\n  \n  // Simple keyword matching for line mentions\n  const lines = ['bakerloo', 'central', 'circle', 'district', 'dlr', \n    'elizabeth', 'hammersmith', 'jubilee', 'metropolitan', 'northern', \n    'piccadilly', 'victoria', 'waterloo', 'overground'];\n  \n  const textLower = text.toLowerCase();\n  const lineMentioned = lines.find(line => textLower.includes(line)) || null;\n  \n  // Simple sentiment: count negative words\n  const negativeWords = ['delay', 'delayed', 'cancelled', 'suspended', \n    'closure', 'closed', 'fault', 'failure', 'disruption', 'nightmare',\n    'awful', 'terrible', 'stuck', 'stranded', 'broken'];\n  const positiveWords = ['good', 'great', 'running', 'normal', 'fine', \n    'smooth', 'excellent', 'working'];\n  \n  let negCount = 0;\n  let posCount = 0;\n  for (const word of negativeWords) {\n    if (textLower.includes(word)) negCount++;\n  }\n  for (const word of positiveWords) {\n    if (textLower.includes(word)) posCount++;\n  }\n  \n  // Score between -1 and 1\n  const total = negCount + posCount;\n  const sentiment = total === 0 ? 0 : (posCount - negCount) / total;\n  \n  // Extract matched keywords\n  const allKeywords = [...negativeWords, ...positiveWords];\n  const matched = allKeywords.filter(w => textLower.includes(w));\n  \n  items.push({\n    json: {\n      text_content: text.substring(0, 500),\n      line_mentioned: lineMentioned,\n      station_mentioned: null,\n      sentiment_score: parseFloat(sentiment.toFixed(2)),\n      keyword_tags: matched,\n      source: 'reddit',\n      timestamp: new Date(data.created * 1000).toISOString()\n    }\n  });\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -192
+      ],
+      "id": "a7ec7e65-5c0d-4044-9775-3cf26d79b322",
+      "name": "Extracting content from reddit"
+    },
+    {
+      "parameters": {
+        "tableId": "social_signals",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "text_content",
+              "fieldValue": "={{ $json.text_content }}"
+            },
+            {
+              "fieldId": "line_mentioned",
+              "fieldValue": "={{ $json.line_mentioned }}"
+            },
+            {
+              "fieldId": "station_mentioned",
+              "fieldValue": "={{ $json.station_mentioned }}"
+            },
+            {
+              "fieldId": "sentiment_score",
+              "fieldValue": "={{ $json.sentiment_score }}"
+            },
+            {
+              "fieldId": "keyword_tags",
+              "fieldValue": "={{ $json.keyword_tags }}"
+            },
+            {
+              "fieldId": "source",
+              "fieldValue": "={{ $json.source }}"
+            },
+            {
+              "fieldId": "timestamp",
+              "fieldValue": "={{ $json.timestamp }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -192
+      ],
+      "id": "462c3ac8-605d-46ce-93a5-0f1d93add2b9",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Extracting content from reddit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extracting content from reddit": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6a9201c6-339d-44c2-9da0-5f2d7c9fdb8e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "3VId1Z6Y1i8Pc93v",
+  "tags": []
+}

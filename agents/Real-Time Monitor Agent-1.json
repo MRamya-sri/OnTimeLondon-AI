@@ -1,0 +1,217 @@
+{
+  "name": "Real-Time Monitor Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -480,
+        -176
+      ],
+      "id": "91a3c286-aaf6-4e8f-b4a1-34e80fe35e80",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "live_status",
+        "limit": 200
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -176
+      ],
+      "id": "9590ed7e-34f6-46d6-8aa8-45466261bda9",
+      "name": "Get many rows",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\n\n// Group readings by line\nconst lineGroups = {};\nfor (const row of rows) {\n  if (!lineGroups[row.line_id]) {\n    lineGroups[row.line_id] = [];\n  }\n  lineGroups[row.line_id].push(row);\n}\n\nconst alerts = [];\n\nfor (const lineId in lineGroups) {\n  const readings = lineGroups[lineId];\n  \n  if (readings.length < 3) continue; // need minimum data\n  \n  // Get severity values\n  const severities = readings.map(r => r.status_severity);\n  \n  // Calculate mean\n  const mean = severities.reduce((sum, val) => sum + val, 0) / severities.length;\n  \n  // Calculate standard deviation\n  const squaredDiffs = severities.map(val => Math.pow(val - mean, 2));\n  const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / severities.length;\n  const std = Math.sqrt(variance);\n  \n  // Latest reading\n  const latest = readings[0];\n  const currentValue = latest.status_severity;\n  \n  // Calculate Z-Score (lower severity = worse, so we check negative direction)\n  // TfL: 10 = Good Service, lower = worse\n  const zScore = std === 0 ? 0 : (mean - currentValue) / std;\n  \n  // Alert if Z-Score > 2 (meaning current is significantly worse than recent average)\n  if (zScore > 2) {\n    alerts.push({\n      json: {\n        line_id: lineId,\n        alert_type: 'status_spike',\n        severity_score: currentValue,\n        z_score: parseFloat(zScore.toFixed(2)),\n        baseline_mean: parseFloat(mean.toFixed(2)),\n        baseline_std: parseFloat(std.toFixed(2)),\n        current_value: currentValue,\n        trigger_source: 'tfl_status',\n        description: `${latest.line_name}: ${latest.status_description} - Z-Score ${zScore.toFixed(2)} exceeds threshold of 2.0. Reason: ${latest.disruption_reason || 'Unknown'}`,\n        was_real_incident: null,\n        prediction_triggered: false,\n        timestamp: new Date().toISOString()\n      }\n    });\n  }\n}\n\n// If no alerts, output a simple \"all clear\" message\nif (alerts.length === 0) {\n  return [{ json: { status: 'all_clear', message: 'No anomalies detected', timestamp: new Date().toISOString() } }];\n}\n\nreturn alerts;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -176
+      ],
+      "id": "45173a73-6818-46fc-8106-7c2c9950cb84",
+      "name": "z-score anamoly detection"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "15460ab8-3c95-4918-9e78-dee3494055b1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "all_clear",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        -176
+      ],
+      "id": "01ad0b41-94c2-41e9-8723-52c1fd20a818",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "tableId": "monitor_alerts",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "line_id",
+              "fieldValue": "={{ $json.line_id }}"
+            },
+            {
+              "fieldId": "alert_type",
+              "fieldValue": "={{ $json.alert_type }}"
+            },
+            {
+              "fieldId": "severity_score",
+              "fieldValue": "{{ $json.severity_score }"
+            },
+            {
+              "fieldId": "z_score",
+              "fieldValue": "{{ $json.z_score })"
+            },
+            {
+              "fieldId": "baseline_mean",
+              "fieldValue": "={{ $json.baseline_mean }}"
+            },
+            {
+              "fieldId": "baseline_std",
+              "fieldValue": "={{ $json.baseline_std }}"
+            },
+            {
+              "fieldId": "current_value",
+              "fieldValue": "={{ $json.current_value }}"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "={{ $json.trigger_source }}"
+            },
+            {
+              "fieldId": "description",
+              "fieldValue": "={{ $json.description }}"
+            },
+            {
+              "fieldId": "prediction_triggered",
+              "fieldValue": "={{ $json.prediction_triggered }}"
+            },
+            {
+              "fieldId": "timestamp",
+              "fieldValue": "={{ $json.timestamp }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        -272
+      ],
+      "id": "fba459ef-78b7-4784-beb7-5f0f6a30c75f",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "z-score anamoly detection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "z-score anamoly detection": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "94caeded-8310-4d71-9b6c-5060da2726ed",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "iY6a8ggbvOf3NYAr",
+  "tags": []
+}

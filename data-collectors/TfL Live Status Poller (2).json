@@ -1,0 +1,146 @@
+{
+  "name": "TfL Live Status Poller",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -432,
+        -192
+      ],
+      "id": "3217d60f-c60d-4abb-a647-15a5b301e780",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://api.tfl.gov.uk/Line/Mode/tube,overground,elizabeth-line,dlr/Status",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -224,
+        -192
+      ],
+      "id": "903fbba1-83f3-4078-8a2e-0ef5712d0f93",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\n\nfor (const line of $input.all()) {\n  const data = line.json;\n  const lineStatus = data.lineStatuses[0];\n  \n  items.push({\n    json: {\n      line_id: data.id,\n      line_name: data.name,\n      status_severity: lineStatus.statusSeverity,\n      status_description: lineStatus.statusSeverityDescription,\n      disruption_reason: lineStatus.reason || null,\n      timestamp: new Date().toISOString()\n    }\n  });\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        -192
+      ],
+      "id": "3aa55fea-2849-4e3d-a6f7-5fd6538f3f18",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "tableId": "live_status",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "line_id",
+              "fieldValue": "={{ $json.line_id }}"
+            },
+            {
+              "fieldId": "line_name",
+              "fieldValue": "={{ $json.line_name }}"
+            },
+            {
+              "fieldId": "status_severity",
+              "fieldValue": "={{ $json.status_severity }}"
+            },
+            {
+              "fieldId": "status_description",
+              "fieldValue": "={{ $json.status_description }}"
+            },
+            {
+              "fieldId": "distruption_reason",
+              "fieldValue": "={{ $json.disruption_reason }}"
+            },
+            {
+              "fieldId": "timestamp",
+              "fieldValue": "={{ $json.timestamp }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        192,
+        -192
+      ],
+      "id": "24f5247e-0e9f-49f1-9774-395c32fbfb09",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "zT2nfS75w2latppI",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3f18a8ab-2910-48c3-8429-e2af3a622e2a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b0a31120df76f90d75e93704354898e4d817bb977874df935ab5c71bf4480180"
+  },
+  "id": "dAflvrWsSovPXjTP",
+  "tags": []
+}
