@@ -211,4 +211,4 @@ This project was built as part of my MSc Artificial Intelligence dissertation at
 **Ramya Sri Muthuluri**  
 📧 ramyasrimuthuluri@gmail.com  
 🔗 [LinkedIn](https://linkedin.com/in/ramya-sri-518a85204)  
-🌐 [Portfolio](https://ramya-portfolio.vercel.app)
+🌐 [Portfolio](https://ramya-portfolio-ten.vercel.app)
